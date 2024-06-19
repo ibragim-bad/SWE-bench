@@ -7,7 +7,7 @@ from swebench.versioning.constants import (
     MAP_REPO_TO_VERSION_PATHS,
     MAP_REPO_TO_VERSION_PATTERNS,
 )
-from swebench.versioning.utils import get_instances, split_instances
+from swebench.versioning.utils import get_instances, split_instances, find_version_files, find_package_files
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -19,6 +19,7 @@ INSTALL_CMD = {
     "pytest-dev/pytest": "pip install -e .",
     "matplotlib/matplotlib": "python -m pip install -e .",
     "pydata/xarray": "pip install -e .",
+    "default":  "conda env update --file environment.yml"
 }
 
 
@@ -36,7 +37,10 @@ def _find_version_in_text(text: str, instance: dict) -> str:
     pattern = r'""".*?"""'
     text = re.sub(pattern, '', text, flags=re.DOTALL)
     # Search through all patterns
-    for pattern in MAP_REPO_TO_VERSION_PATTERNS[instance["repo"]]:
+    repo_name = "default"
+    if instance["repo"] in MAP_REPO_TO_VERSION_PATTERNS:
+        repo_name = instance["repo"]
+    for pattern in MAP_REPO_TO_VERSION_PATTERNS[repo_name]:
         matches = re.search(pattern, text)
         if matches is not None:
             print(instance['repo'])
@@ -67,7 +71,10 @@ def get_version(instance, is_build=False, path_repo=None):
         str: Version text, if found
     """
     keep_major_minor = lambda x, sep: ".".join(x.strip().split(sep)[:2])
-    paths_to_version = MAP_REPO_TO_VERSION_PATHS[instance["repo"]]
+    if instance["repo"] not in MAP_REPO_TO_VERSION_PATHS and is_build:
+        paths_to_version = find_version_files(path_repo)
+    else:
+        paths_to_version = MAP_REPO_TO_VERSION_PATHS[instance["repo"]]
     version = None
     for path_to_version in paths_to_version:
         init_text = None
@@ -140,7 +147,11 @@ def get_versions_from_build(data: dict):
     # Activate conda environment and set installation command
     cmd_activate = f"source {os.path.join(path_conda, 'bin/activate')}"
     cmd_source = f"source {os.path.join(path_conda, 'etc/profile.d/conda.sh')}"
-    cmd_install = INSTALL_CMD[data_tasks[0]["repo"]]
+    cmd_install = INSTALL_CMD.get(data_tasks[0]["repo"])
+    if cmd_install is None:
+        reqs = find_package_files(path_repo)
+        first_req = reqs[0]
+        cmd_install = f"pip install -r {first_req}"
 
     # Change directory to repo testbed
     cwd = os.getcwd()
@@ -168,7 +179,7 @@ def get_versions_from_build(data: dict):
 
         # Run installation command in repo
         out_install = subprocess.run(
-            f"{cmd_source}; {cmd_activate} {conda_env}; {cmd_install}",
+            f"bash -c '{cmd_source}'; bash -c '{cmd_activate} {conda_env}'; {cmd_install}",
             shell=True,
             stdout=subprocess.DEVNULL,
         )
@@ -310,7 +321,7 @@ def main(args):
                 f"Creating clone of {data_tasks[0]['repo']} at {testbed_repo_name}"
             )
             cmd_clone = (
-                f"git clone git@github.com:swe-bench/{repo_prefix} {testbed_repo_name}"
+                f"git clone git@github.com:{repo_prefix.replace('__', '/')} {testbed_repo_name}"
             )
             subprocess.run(cmd_clone, shell=True, check=True, stdout=subprocess.DEVNULL)
         else:
