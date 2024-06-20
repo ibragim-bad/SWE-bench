@@ -135,7 +135,7 @@ def get_instances(instance_path: str) -> list:
     return task_instances
 
 
-def get_requirements(instance: dict, save_path: str = None):
+def get_requirements(instance: dict, req_files_list: list, save_path: str = None):
     """
     Get requirements.txt for given task instance
 
@@ -149,8 +149,10 @@ def get_requirements(instance: dict, save_path: str = None):
     # Attempt to find requirements.txt at each path based on task instance's repo
     path_worked = False
     commit = 'environment_setup_commit' if 'environment_setup_commit' in instance else 'base_commit'
+    req_files_list = MAP_REPO_TO_REQS_PATHS.get(instance["repo"], []) + req_files_list
 
-    for req_path in MAP_REPO_TO_REQS_PATHS[instance["repo"]]:
+    #TODO: change to offline content get of req.txt
+    for req_path in req_files_list:
         reqs_url = os.path.join(
             SWE_BENCH_URL_RAW, instance["repo"], instance[commit], req_path
         )
@@ -459,3 +461,14 @@ def has_attribute_or_import_error(log_before):
         if any([(x in lines_1 or x in lines_2) for x in ['error', 'fail']]):
             return True
     return False
+
+def find_package_files(directory):
+    package_files = []
+    
+    for root, _, files in os.walk(directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if file.endswith('.txt') and file.startswith('requirements'):
+                package_files.append(os.path.relpath(file_path, start=directory))
+    
+    return package_files

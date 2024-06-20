@@ -1,4 +1,5 @@
 import argparse, glob, json, logging, os, re, requests, subprocess, sys
+from functools import partial
 
 from multiprocessing import Pool, Manager
 
@@ -7,7 +8,8 @@ from swebench.versioning.constants import (
     MAP_REPO_TO_VERSION_PATHS,
     MAP_REPO_TO_VERSION_PATTERNS,
 )
-from swebench.versioning.utils import get_instances, split_instances, find_version_files, find_package_files
+from swebench.versioning.utils import get_instances, split_instances, find_version_files
+from swebench.harness.utils import find_package_files
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -128,7 +130,7 @@ def map_version_to_task_instances(task_instances: list) -> dict:
     return return_map
 
 
-def get_versions_from_build(data: dict):
+def get_versions_from_build(data: dict, install_env=False):
     """
     Logic for looking up versions by building the repo at the instance's base
     commit and looking for the version according to repo-specific paths.
@@ -178,14 +180,15 @@ def get_versions_from_build(data: dict):
             continue
 
         # Run installation command in repo
-        out_install = subprocess.run(
-            f"bash -c '{cmd_source}'; bash -c '{cmd_activate} {conda_env}'; {cmd_install}",
-            shell=True,
-            stdout=subprocess.DEVNULL,
-        )
-        if out_install.returncode != 0:
-            logger.error(f"[{instance['instance_id']}] Installation failed")
-            continue
+        if install_env:
+            out_install = subprocess.run(
+                f"bash -c '{cmd_source}'; bash -c '{cmd_activate} {conda_env}'; {cmd_install}",
+                shell=True,
+                stdout=subprocess.DEVNULL,
+            )
+            if out_install.returncode != 0:
+                logger.error(f"[{instance['instance_id']}] Installation failed")
+                continue
 
         # Look up version according to repo-specific paths
         version = get_version(instance, is_build=True, path_repo=path_repo)
@@ -330,16 +333,17 @@ def main(args):
             )
         # Clone conda environment per thread
         conda_env_name = f"{args.conda_env}_clone_{x}"
-        if not os.path.exists(os.path.join(args.path_conda, "envs", conda_env_name)):
-            logger.info(f"Creating clone of {args.conda_env} at {conda_env_name}")
-            cmd_clone_env = f"{conda_exec} create --name {conda_env_name} --clone {args.conda_env} -y"
-            subprocess.run(
-                cmd_clone_env, shell=True, check=True, stdout=subprocess.DEVNULL
-            )
-        else:
-            logger.info(
-                f"Conda clone for thread {x} exists: {conda_env_name}; skipping..."
-            )
+        if args.install_env:
+            if not os.path.exists(os.path.join(args.path_conda, "envs", conda_env_name)):
+                logger.info(f"Creating clone of {args.conda_env} at {conda_env_name}")
+                cmd_clone_env = f"{conda_exec} create --name {conda_env_name} --clone {args.conda_env} -y"
+                subprocess.run(
+                    cmd_clone_env, shell=True, check=True, stdout=subprocess.DEVNULL
+                )
+            else:
+                logger.info(
+                    f"Conda clone for thread {x} exists: {conda_env_name}; skipping..."
+                )
     os.chdir(cwd)
 
     # Create pool tasks
@@ -357,8 +361,10 @@ def main(args):
         )
 
     # Parallelized call
+    partial_get_versions = partial(get_versions_from_build, install_env=args.install_env)
+
     pool = Pool(processes=args.num_workers)
-    pool.map(get_versions_from_build, pool_tasks)
+    pool.map(partial_get_versions, pool_tasks)
     pool.close()
     pool.join()
 
@@ -400,5 +406,6 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=1, help="Number of threads to use")
     parser.add_argument("--output_dir", type=str, default=None, help="Path to save results")
     parser.add_argument("--testbed", type=str, default=None, help="Path to testbed repo")
+    parser.add_argument("--install_env", type=bool, default=False, help="Path to testbed repo")
     args = parser.parse_args()
     main(args)

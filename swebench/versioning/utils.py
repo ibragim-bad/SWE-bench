@@ -62,15 +62,3 @@ def find_version_files(directory):
     
     return version_files
 
-import os
-
-def find_package_files(directory):
-    package_files = []
-    
-    for root, _, files in os.walk(directory):
-        for file in files:
-            file_path = os.path.join(root, file)
-            if file.endswith('.txt') and file.startswith('requirements'):
-                package_files.append(file_path)
-    
-    return package_files

@@ -1,4 +1,4 @@
-import logging, os, platform, subprocess, json
+import logging, os, platform, subprocess, json, shutil
 
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 from swebench.harness.constants import (
@@ -14,11 +14,13 @@ from swebench.harness.constants import (
     MAP_REPO_TO_TEST_FRAMEWORK,
     MAP_REPO_VERSION_TO_CONDA_LINK,
     MAP_VERSION_TO_INSTALL,
+    PLACEHOLDER,
     RESET_FAILED,
     TESTS_FAILED,
     TESTS_PASSED,
     TESTS_TIMEOUT,
     TESTS_ERROR,
+    TEST_PYTEST,
     PatchType,
 )
 from swebench.harness.utils import (
@@ -27,6 +29,7 @@ from swebench.harness.utils import (
     get_environment_yml,
     get_requirements,
     get_test_directives,
+    find_package_files
 )
 from tempfile import TemporaryDirectory
 from traceback import format_exc
@@ -147,6 +150,7 @@ class TestbedContextManager:
             logger_testbed.info(f"[Testbed] Creating temp directory {temp_dir}")
             os.makedirs(temp_dir, exist_ok=True)
         temp_dir = os.path.abspath(temp_dir) if temp_dir is not None else None
+        self.temp_dir = temp_dir
 
         # Sort task instances by created_at
         self.task_instances = sorted(
@@ -157,7 +161,7 @@ class TestbedContextManager:
         self.task_instances_grouped = {}
         for instance in self.task_instances:
             # Create test command from framework + directives
-            test_type = MAP_REPO_TO_TEST_FRAMEWORK[instance["repo"]]
+            test_type = MAP_REPO_TO_TEST_FRAMEWORK.get(instance["repo"], TEST_PYTEST)
             instance["test_directives"] = get_test_directives(instance)
             instance["test_cmd"] = f"{test_type} {' '.join(instance['test_directives'])}"
 
@@ -297,6 +301,7 @@ class TestbedContextManager:
         path_activate = os.path.join(self.path_conda, "bin", "activate")
         exec_cmd = os.path.join(self.path_conda, "bin", "conda")
         env_list = get_conda_env_names(exec_cmd)
+        env_names_list = [e.split('/')[-1] for e in env_list]
 
         # Set up testbed (environment, github repo) for each repo
         for repo, version_to_setup_ref in self.setup_refs.items():
@@ -309,7 +314,11 @@ class TestbedContextManager:
                 self.exec(install_cmd)
 
             # Create conda environment per version of the repo
-            for version, install in MAP_VERSION_TO_INSTALL[repo].items():
+            version_installs = MAP_VERSION_TO_INSTALL.get(repo)
+            if version_installs is None:
+                version_installs = dict(zip(self.task_instances_grouped[repo].keys(), [PLACEHOLDER] * len(self.task_instances_grouped[repo])))
+
+            for version, install in version_installs.items():
                 # Skip if none of the task instances are for this version
                 if version not in version_to_setup_ref:
                     continue
@@ -320,16 +329,25 @@ class TestbedContextManager:
 
                 # Clone github per repo/version
                 repo_path = os.path.join(self.testbed, env_name)
-                if not os.path.exists(repo_path):
-                    if clone_repo(repo, repo_path):
-                        self.log.write(f"Cloned {repo} to {repo_path}")
+                #TODO not clone but reuse already cloned version (cp?)
+                temp_repo_dir = os.path.join(self.temp_dir, repo_prefix)
+                if not os.path.exists(temp_repo_dir):
+                    if clone_repo(repo, temp_repo_dir):
+                        self.log.write(f"Cloned {repo} to {temp_repo_dir}")
                     else:
-                        raise Exception(f"Failed to clone {repo} to {repo_path}")
+                        raise Exception(f"Failed to clone {repo} to {temp_repo_dir}")
+                
+                if not os.path.exists(repo_path):
+                    if shutil.copytree(temp_repo_dir, repo_path):
+                        self.log.write(f"Copied {temp_repo_dir} to {repo_path}")
+                    else:
+                        raise Exception(f"Failed to copy {temp_repo_dir} to {repo_path}")
                 else:
                     self.log.write(f"Repo for {repo_prefix} version {version} exists: {repo_path}; skipping")
 
                 # Skip if conda environment already exists
-                if env_name in env_list:
+                
+                if env_name in env_names_list:
                     self.log.write(f"Environment {env_name} already exists; skipping")
                     continue
 
@@ -346,8 +364,10 @@ class TestbedContextManager:
                     self.log.write(f"Creating environment {env_name}")
                     self.exec(cmd.split(" "))
 
+
+                    reqs = find_package_files(repo_path)
                     # Install dependencies
-                    path_to_reqs = get_requirements(setup_ref_instance, self.testbed)
+                    path_to_reqs = get_requirements(setup_ref_instance, reqs, self.testbed)
                     cmd = f". {path_activate} {env_name} && echo 'activate successful' && pip install -r {path_to_reqs}"
                     self.log.write(f"Installing dependencies for {env_name}; Command: {cmd}")
                     self.exec(cmd, shell=True)
@@ -440,14 +460,14 @@ class TestbedContextManager:
             if None in group:
                 self.log.write(f"Removed None version from repo {repo}")
                 del group[None]
-            versions = list(group.keys())
-            for version in versions:
-                if version not in MAP_VERSION_TO_INSTALL[repo]:
-                    self.log.write((
-                        f"Removed {version} version from repo "
-                        f"{repo} (Install instructions not given)"
-                    ))
-                    del group[version]
+            # versions = list(group.keys())
+            # for version in versions:
+            #     if version not in MAP_VERSION_TO_INSTALL[repo]:
+            #         self.log.write((
+            #             f"Removed {version} version from repo "
+            #             f"{repo} (Install instructions not given)"
+            #         ))
+            #         del group[version]
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         if self.temp_dir_work is not None:
@@ -594,7 +614,8 @@ class TaskEnvContextManager:
             bool: True if installation successful, False otherwise
         """
         # Get installation instructions by repo/version
-        specifications = MAP_VERSION_TO_INSTALL[instance["repo"]][instance["version"]]
+        # specifications = MAP_VERSION_TO_INSTALL[instance["repo"]][instance["version"]]
+        specifications = MAP_VERSION_TO_INSTALL.get(instance["repo"], {}).get(instance["version"], PLACEHOLDER)
 
         # Run pre-install set up if provided
         if "pre_install" in specifications:
@@ -723,7 +744,7 @@ class TaskEnvContextManager:
                 f.write(f"Test Script: {test_cmd};\n")
 
             # Set environment variables if provided
-            specifications = MAP_VERSION_TO_INSTALL[instance["repo"]][instance["version"]]
+            specifications = MAP_VERSION_TO_INSTALL.get(instance["repo"], {}).get([instance["version"]], PLACEHOLDER)
             if "env_vars_test" in specifications:
                 self.exec.subprocess_args["env"].update(specifications["env_vars_test"])
 

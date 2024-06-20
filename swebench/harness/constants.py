@@ -1,5 +1,10 @@
 from enum import Enum
 
+PLACEHOLDER = {
+        "python": "3.9",
+        "packages": "requirements.txt",
+        "install": "python -m pip install -e ."}
+
 MAP_VERSION_TO_INSTALL_SKLEARN = {
     k: {
         "python": "3.6",
