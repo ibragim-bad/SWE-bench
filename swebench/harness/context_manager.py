@@ -370,7 +370,7 @@ class TestbedContextManager:
                     path_to_reqs = get_requirements(setup_ref_instance, reqs, self.testbed)
                     cmd = f". {path_activate} {env_name} && echo 'activate successful' && pip install -r {path_to_reqs}"
                     self.log.write(f"Installing dependencies for {env_name}; Command: {cmd}")
-                    self.exec(cmd, shell=True)
+                    self.exec(cmd, shell=True, executable='/bin/bash')
                     os.remove(path_to_reqs)
                 elif pkgs == "environment.yml":
                     if "no_use_env" in install and install["no_use_env"]:
@@ -644,7 +644,7 @@ class TaskEnvContextManager:
         self.log.write(f"Running installation command: {cmd_install}")
         try:
             # Run installation command
-            out_install = self.exec(cmd_install, timeout=self.timeout, shell=True)
+            out_install = self.exec(cmd_install, timeout=self.timeout, shell=True,  executable='/bin/bash')
 
             if out_install.returncode != 0:
                 # Installation failed

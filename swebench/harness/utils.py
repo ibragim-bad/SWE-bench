@@ -463,6 +463,7 @@ def has_attribute_or_import_error(log_before):
     return False
 
 def find_package_files(directory):
+    #TODO: poetry lock and other formats 
     package_files = []
     
     for root, _, files in os.walk(directory):
