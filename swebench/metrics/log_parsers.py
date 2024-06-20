@@ -1,4 +1,5 @@
 import re
+from collections import defaultdict
 
 from swebench.metrics.constants import TestStatus
 
@@ -168,6 +169,18 @@ def parse_log_sympy(log):
                 test_status_map[test] = TestStatus.PASSED.value
     return test_status_map
 
+def try_log_extract(log):
+    result = {}
+    for func in [parse_log_pytest, parse_log_pytest_options, parse_log_pytest_v2]:
+        try:
+            result = func(log)
+            if len(result) > 0:
+                return result
+        except Exception as e:
+            pass
+    return result
+
+default_log_func = try_log_extract
 
 parse_log_astroid = parse_log_pytest
 parse_log_flask = parse_log_pytest
@@ -186,6 +199,7 @@ parse_log_astropy = parse_log_pytest_v2
 parse_log_scikit = parse_log_pytest_v2
 parse_log_sphinx = parse_log_pytest_v2
 
+PARSER_PLACEHOLDER = default_log_func
 
 MAP_REPO_TO_PARSER = {
     "astropy/astropy": parse_log_astropy,

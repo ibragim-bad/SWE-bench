@@ -329,7 +329,7 @@ class TestbedContextManager:
 
                 # Clone github per repo/version
                 repo_path = os.path.join(self.testbed, env_name)
-                #TODO not clone but reuse already cloned version (cp?)
+
                 temp_repo_dir = os.path.join(self.temp_dir, repo_prefix)
                 if not os.path.exists(temp_repo_dir):
                     if clone_repo(repo, temp_repo_dir):
@@ -744,7 +744,7 @@ class TaskEnvContextManager:
                 f.write(f"Test Script: {test_cmd};\n")
 
             # Set environment variables if provided
-            specifications = MAP_VERSION_TO_INSTALL.get(instance["repo"], {}).get([instance["version"]], PLACEHOLDER)
+            specifications = MAP_VERSION_TO_INSTALL.get(instance["repo"], {}).get(instance["version"], PLACEHOLDER)
             if "env_vars_test" in specifications:
                 self.exec.subprocess_args["env"].update(specifications["env_vars_test"])
 
