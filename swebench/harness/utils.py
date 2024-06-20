@@ -473,3 +473,38 @@ def find_package_files(directory):
                 package_files.append(os.path.relpath(file_path, start=directory))
     
     return package_files
+
+def get_all_markdown_files(directory):
+    markdown_files = []
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.endswith('.md'):
+                markdown_files.append(os.path.join(root, file))
+    return markdown_files
+
+def extract_versions_from_file(file_path):
+    with open(file_path, 'r') as file:
+        content = file.read()
+    
+    # Regular expression to find versions in the format like 3.9, 3.6, etc.
+    pattern = r'\b(\d+\.\d+(\.\d+)?)\b'
+    matches = re.findall(pattern, content)
+    return [match[0] for match in matches]
+
+def is_possible_python_version(version):
+    major, minor, *patch = version.split('.')
+    if int(major) == 3 and int(minor) >= 6 and int(minor) <= 12:  # Basic check for Python 3.x.x versions
+        return True
+    return False
+
+def get_python_versions_from_directory(directory):
+    markdown_files = get_all_markdown_files(directory)
+    possible_versions = []
+    
+    for file_path in markdown_files:
+        versions = extract_versions_from_file(file_path)
+        for version in versions:
+            if is_possible_python_version(version):
+                possible_versions.append(version)
+    
+    return possible_versions

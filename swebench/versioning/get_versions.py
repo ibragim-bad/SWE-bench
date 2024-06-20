@@ -149,11 +149,12 @@ def get_versions_from_build(data: dict, install_env=False):
     # Activate conda environment and set installation command
     cmd_activate = f"source {os.path.join(path_conda, 'bin/activate')}"
     cmd_source = f"source {os.path.join(path_conda, 'etc/profile.d/conda.sh')}"
-    cmd_install = INSTALL_CMD.get(data_tasks[0]["repo"])
+    cmd_install = INSTALL_CMD.get(data_tasks[0]["repo"], "")
     if cmd_install is None:
         reqs = find_package_files(path_repo)
-        first_req = reqs[0]
-        cmd_install = f"pip install -r {first_req}"
+        if len(reqs) > 0:
+            first_req = reqs[0]
+            cmd_install = f"pip install -r {first_req}"
 
     # Change directory to repo testbed
     cwd = os.getcwd()
@@ -260,6 +261,11 @@ def main(args):
     """
     # Get task instances + split into groups for each thread
     data_tasks = get_instances(args.instances_path)
+    if len(data_tasks) == 0:
+            logger.info(
+        f"Skip empty file: {args.instances_path}"
+    )
+            return 
     data_task_lists = split_instances(data_tasks, args.num_workers)
     repo_prefix = data_tasks[0]["repo"].replace("/", "__")
 
@@ -318,6 +324,7 @@ def main(args):
     os.chdir(args.testbed)
     for x in range(0, args.num_workers):
         # Clone git repo per thread
+        #TODO: Add copy instead of cloning with already have repo 
         testbed_repo_name = f"{repo_prefix}__{x}"
         if not os.path.exists(testbed_repo_name):
             logger.info(

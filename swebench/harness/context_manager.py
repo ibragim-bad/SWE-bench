@@ -1,4 +1,5 @@
 import logging, os, platform, subprocess, json, shutil
+from copy import deepcopy
 
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 from swebench.harness.constants import (
@@ -29,7 +30,8 @@ from swebench.harness.utils import (
     get_environment_yml,
     get_requirements,
     get_test_directives,
-    find_package_files
+    find_package_files,
+    get_python_versions_from_directory
 )
 from tempfile import TemporaryDirectory
 from traceback import format_exc
@@ -353,6 +355,11 @@ class TestbedContextManager:
 
                 # Get setup reference instance
                 setup_ref_instance = version_to_setup_ref[version]
+                if MAP_VERSION_TO_INSTALL.get(repo) is None:
+                    possible_python_versions = get_python_versions_from_directory(repo_path)
+                    if len(possible_python_versions) > 0:
+                        install['python'] = possible_python_versions[-1]
+                        self.log.write(f"Found python version for repo_path: {possible_python_versions[-1]}")
 
                 # Create conda environment according to install instructinos
                 pkgs = install["packages"] if "packages" in install else ""
