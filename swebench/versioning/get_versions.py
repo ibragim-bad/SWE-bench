@@ -9,7 +9,8 @@ from swebench.versioning.constants import (
     MAP_REPO_TO_VERSION_PATTERNS,
 )
 from swebench.versioning.utils import get_instances, split_instances, find_version_files
-from swebench.harness.utils import find_package_files
+from swebench.harness.utils import find_requirement_files, get_requirements, classify_package_files
+from swebench.harness.extract_utils import get_required_packages, get_repo_version, get_python_version_from_directory
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -149,12 +150,6 @@ def get_versions_from_build(data: dict, install_env=False):
     # Activate conda environment and set installation command
     cmd_activate = f"source {os.path.join(path_conda, 'bin/activate')}"
     cmd_source = f"source {os.path.join(path_conda, 'etc/profile.d/conda.sh')}"
-    cmd_install = INSTALL_CMD.get(data_tasks[0]["repo"], "")
-    if cmd_install is None:
-        reqs = find_package_files(path_repo)
-        if len(reqs) > 0:
-            first_req = reqs[0]
-            cmd_install = f"pip install -r {first_req}"
 
     # Change directory to repo testbed
     cwd = os.getcwd()
@@ -180,8 +175,15 @@ def get_versions_from_build(data: dict, install_env=False):
             logger.error(f"[{instance['instance_id']}] Checkout failed")
             continue
 
+        packages_list = get_required_packages(path_repo)
+        packages = " ".join(packages_list)
+
         # Run installation command in repo
         if install_env:
+            cmd_install = INSTALL_CMD.get(data_tasks[0]["repo"], "")
+            if cmd_install is None:
+                cmd_install = f"pip install {packages}"
+            
             out_install = subprocess.run(
                 f"bash -c '{cmd_source}'; bash -c '{cmd_activate} {conda_env}'; {cmd_install}",
                 shell=True,
@@ -192,8 +194,21 @@ def get_versions_from_build(data: dict, install_env=False):
                 continue
 
         # Look up version according to repo-specific paths
-        version = get_version(instance, is_build=True, path_repo=path_repo)
-        instance["version"] = version
+        version = get_repo_version(path_repo)
+
+        python_version = get_python_version_from_directory(path_repo)
+        if python_version is None:
+            python_version = "3.9"
+        install_params  = {
+            "python": python_version,
+            "packages": packages,
+            "install": "pip install -e .",
+            # "pip_packages": [
+            # add if can parse from setup cfg
+            # ],
+    }
+        instance['install_params'] = install_params
+        instance['version'] = version
         logger.info(f'For instance {instance["instance_id"]}, version is {version}')
 
     # Save results

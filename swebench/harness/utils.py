@@ -162,7 +162,7 @@ def get_requirements(instance: dict, req_files_list: list, save_path: str = None
             break
     if not path_worked:
         print(
-            f"Could not find requirements.txt at paths {MAP_REPO_TO_REQS_PATHS[instance['repo']]}"
+            f"Could not find requirements.txt at paths {MAP_REPO_TO_REQS_PATHS.get(instance['repo'])}"
         )
         return None
 
@@ -462,17 +462,23 @@ def has_attribute_or_import_error(log_before):
             return True
     return False
 
-def find_package_files(directory):
+def find_requirement_files(directory):
     #TODO: poetry lock and other formats 
     package_files = []
     
     for root, _, files in os.walk(directory):
         for file in files:
             file_path = os.path.join(root, file)
-            if file.endswith('.txt') and file.startswith('requirements'):
+            if (file.endswith('.txt') and file.startswith('requirements')) or file  == 'environment.yml':
                 package_files.append(os.path.relpath(file_path, start=directory))
     
     return package_files
+
+def classify_package_files(files):
+    for file in files:
+        if file == 'environment.yml':
+            return "environment.yml"
+    return "requirement.txt"
 
 def get_all_markdown_files(directory):
     markdown_files = []
@@ -497,14 +503,15 @@ def is_possible_python_version(version):
         return True
     return False
 
-def get_python_versions_from_directory(directory):
-    markdown_files = get_all_markdown_files(directory)
-    possible_versions = []
+# def get_python_version_from_directory(directory):
+#     markdown_files = get_all_markdown_files(directory)
+#     possible_version = None
     
-    for file_path in markdown_files:
-        versions = extract_versions_from_file(file_path)
-        for version in versions:
-            if is_possible_python_version(version):
-                possible_versions.append(version)
+#     for file_path in markdown_files:
+#         versions = extract_versions_from_file(file_path)
+#         for version in versions:
+#             if is_possible_python_version(version):
+#                 possible_version = version
+#                 break 
     
-    return possible_versions
+#     return possible_version
