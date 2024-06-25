@@ -10,7 +10,7 @@ from swebench.versioning.constants import (
 )
 from swebench.versioning.utils import get_instances, split_instances, find_version_files
 from swebench.harness.utils import find_requirement_files, get_requirements, classify_package_files
-from swebench.harness.extract_utils import get_required_packages, get_repo_version, get_python_version_from_directory
+from swebench.harness.extract_utils import get_required_packages, get_repo_version, get_python_version_from_directory, get_required_packages_file, INSTALL_COMMANDS
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -175,14 +175,18 @@ def get_versions_from_build(data: dict, install_env=False):
             logger.error(f"[{instance['instance_id']}] Checkout failed")
             continue
 
-        packages_list = get_required_packages(path_repo)
-        packages = " ".join(packages_list)
-
+        # packages_list = get_required_packages(path_repo)
+        package_files = get_required_packages_file(path_repo)
+        ##pyrpoject at first then others
+        # pack_type = [p.split('/')[-1] for p in package_files]
+        for pack_type in ['requirements.txt', 'environment.yml', 'pyproject.toml', 'setup.py', 'tox.ini']:
+            if pack_type in package_files:
+                break
         # Run installation command in repo
         if install_env:
             cmd_install = INSTALL_CMD.get(data_tasks[0]["repo"], "")
-            if cmd_install is None:
-                cmd_install = f"pip install {packages}"
+            # if cmd_install is None:
+            #     cmd_install = f"pip install {packages}"
             
             out_install = subprocess.run(
                 f"bash -c '{cmd_source}'; bash -c '{cmd_activate} {conda_env}'; {cmd_install}",
@@ -201,12 +205,11 @@ def get_versions_from_build(data: dict, install_env=False):
             python_version = "3.9"
         install_params  = {
             "python": python_version,
-            "packages": packages,
-            "install": "pip install -e .",
-            # "pip_packages": [
-            # add if can parse from setup cfg
-            # ],
-    }
+            "packages": pack_type,
+            "install": INSTALL_COMMANDS[pack_type],
+        }
+        if pack_type in package_files:
+            install_params['files'] = package_files[pack_type]
         instance['install_params'] = install_params
         instance['version'] = version
         logger.info(f'For instance {instance["instance_id"]}, version is {version}')

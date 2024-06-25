@@ -30,8 +30,7 @@ from swebench.harness.utils import (
     get_environment_yml,
     get_requirements,
     get_test_directives,
-    find_package_files,
-    get_python_versions_from_directory
+    find_requirement_files
 )
 from tempfile import TemporaryDirectory
 from traceback import format_exc
@@ -83,7 +82,8 @@ class ExecWrapper:
             else:
                 self.logger.write(f"Command: {cmd}", level=DEBUG)
             combined_args = {**self.subprocess_args, **kwargs}
-            self.logger.write(f"Subprocess args: {json.dumps(combined_args)}", level=DEBUG)
+            # Disable subprocess args logs
+            # self.logger.write(f"Subprocess args: {json.dumps(combined_args)}", level=DEBUG)
             output = subprocess.run(cmd, **combined_args)
             self.logger.write(f"Std. Output:\n{output.stdout}", level=DEBUG)
             if output.stderr:
@@ -318,7 +318,7 @@ class TestbedContextManager:
             # Create conda environment per version of the repo
             version_installs = MAP_VERSION_TO_INSTALL.get(repo)
             if version_installs is None:
-                version_installs = dict(zip(self.task_instances_grouped[repo].keys(), [PLACEHOLDER] * len(self.task_instances_grouped[repo])))
+                version_installs = {k: v[0].get("install_params", PLACEHOLDER) for k, v in self.task_instances_grouped[repo].items()}
 
             for version, install in version_installs.items():
                 # Skip if none of the task instances are for this version
@@ -355,30 +355,37 @@ class TestbedContextManager:
 
                 # Get setup reference instance
                 setup_ref_instance = version_to_setup_ref[version]
-                if MAP_VERSION_TO_INSTALL.get(repo) is None:
-                    possible_python_versions = get_python_versions_from_directory(repo_path)
-                    if len(possible_python_versions) > 0:
-                        install['python'] = possible_python_versions[-1]
-                        self.log.write(f"Found python version for repo_path: {possible_python_versions[-1]}")
 
                 # Create conda environment according to install instructinos
                 pkgs = install["packages"] if "packages" in install else ""
                 if pkgs == "requirements.txt":
                     # Create environment
                     cmd = (
-                        f"{exec_cmd} create -n {env_name} python={install['python']} -y"
+                        f"{exec_cmd} create -n {env_name} python={install['python']} pytest -y"
                     )
                     self.log.write(f"Creating environment {env_name}")
                     self.exec(cmd.split(" "))
 
 
-                    reqs = find_package_files(repo_path)
+                    reqs = find_requirement_files(repo_path)
                     # Install dependencies
                     path_to_reqs = get_requirements(setup_ref_instance, reqs, self.testbed)
                     cmd = f". {path_activate} {env_name} && echo 'activate successful' && pip install -r {path_to_reqs}"
                     self.log.write(f"Installing dependencies for {env_name}; Command: {cmd}")
                     self.exec(cmd, shell=True, executable='/bin/bash')
                     os.remove(path_to_reqs)
+                elif pkgs == "pyproject.toml":
+                    # Create environment
+                    
+                    cmd = (
+                        f"{exec_cmd} create -n {env_name} python={install['python']} pytest poetry -y"
+                    )
+                    self.log.write(f"Creating environment {env_name}")
+                    self.exec(cmd.split(" "))
+
+                    # cmd = f". {path_activate} {env_name} && echo 'activate successful' && {install['install']}"
+                    # self.log.write(f"Installing dependencies for {env_name}; Command: {cmd}")
+                    # self.exec(cmd, shell=True, executable='/bin/bash')
                 elif pkgs == "environment.yml":
                     if "no_use_env" in install and install["no_use_env"]:
                         # Create environment from yml
@@ -407,15 +414,20 @@ class TestbedContextManager:
                         # `conda env create` based installation
                         cmd = f"{exec_cmd} env create --file {path_to_reqs}"
                         self.log.write(f"Creating environment {env_name}")
-                        self.exec(cmd.split(" "))
+                        self.exec(cmd.split(" "), shell=True, executable='/bin/bash')
 
                     # Remove environment.yml
                     os.remove(path_to_reqs)
                 else:
                     # Create environment + install dependencies
-                    cmd = f"{exec_cmd} create -n {env_name} python={install['python']} {pkgs} -y"
+                    cmd = f"{exec_cmd} create -n {env_name} python={install['python']} -y"
                     self.log.write(f"Creating environment {env_name}")
-                    self.exec(cmd.split(" "))
+                    self.exec(cmd, shell=True, executable='/bin/bash')
+                    install_cmd = f". {path_activate} {env_name}"
+                    if pkgs:
+                         install_cmd += f" && {install['install']}"
+                    self.log.write(f"Install cmd to {install_cmd}")
+                    self.exec(install_cmd, shell=True, executable='/bin/bash')
 
                 arch = platform.machine()
                 arch_specific_packages = install.get("arch_specific_packages", {}).get(arch, "")
@@ -621,8 +633,9 @@ class TaskEnvContextManager:
             bool: True if installation successful, False otherwise
         """
         # Get installation instructions by repo/version
-        # specifications = MAP_VERSION_TO_INSTALL[instance["repo"]][instance["version"]]
-        specifications = MAP_VERSION_TO_INSTALL.get(instance["repo"], {}).get(instance["version"], PLACEHOLDER)
+        specifications = MAP_VERSION_TO_INSTALL.get(instance["repo"], {}).get(instance["version"])
+        if specifications is None:
+            specifications = instance.get("install_params", PLACEHOLDER)
 
         # Run pre-install set up if provided
         if "pre_install" in specifications:
@@ -647,11 +660,16 @@ class TaskEnvContextManager:
         if "install" not in specifications:
             return True
 
-        cmd_install = f"{self.cmd_activate} && {specifications['install']}"
+     #   cmd_install = f"{self.cmd_activate} && {specifications['install']} && conda install pytest"
+        cmd_install = f"{self.cmd_activate} && pip install -e ."
+        # cmd_install_env = f"{self.cmd_activate} && {specifications['install']}"
+        # poetry_install = f"{self.cmd_activate} && poetry install"
         self.log.write(f"Running installation command: {cmd_install}")
         try:
             # Run installation command
             out_install = self.exec(cmd_install, timeout=self.timeout, shell=True,  executable='/bin/bash')
+            # out_env_install = self.exec(cmd_install_env, timeout=self.timeout, shell=True,  executable='/bin/bash')
+            # out_install_2 = self.exec(poetry_install, timeout=self.timeout, shell=True,  executable='/bin/bash')
 
             if out_install.returncode != 0:
                 # Installation failed
@@ -751,12 +769,13 @@ class TaskEnvContextManager:
                 f.write(f"Test Script: {test_cmd};\n")
 
             # Set environment variables if provided
+            #TODO: get from instance 
             specifications = MAP_VERSION_TO_INSTALL.get(instance["repo"], {}).get(instance["version"], PLACEHOLDER)
             if "env_vars_test" in specifications:
                 self.exec.subprocess_args["env"].update(specifications["env_vars_test"])
 
             out_test = self.exec(
-                test_cmd, shell=True, timeout=self.timeout, check=False
+                test_cmd, shell=True, timeout=self.timeout, check=False, executable='/bin/bash'
             )
 
             # Unset environment variables if provided

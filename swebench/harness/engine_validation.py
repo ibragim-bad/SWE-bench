@@ -52,7 +52,8 @@ def verify_task_instances(data: dict):
             data_dict.log_dir,
             data_dict.conda_path,
             verbose=data_dict.verbose,
-            timeout=data_dict.timeout,
+            # timeout=data_dict.timeout,
+            timeout=600,
             log_suffix=data_dict.log_suffix,
         ) as tcm:
             if (
@@ -95,7 +96,8 @@ def setup_testbed(data: dict):
         path_conda=data_dict.path_conda,
         testbed=data_dict.testbed,
         temp_dir=data_dict.temp_dir,
-        timeout=data_dict.timeout,
+        # timeout=data_dict.timeout,
+        timeout=600,
         verbose=data_dict.verbose,
     ) as tcm:
         distributed_task_list = tcm.get_distributed_tasks()
