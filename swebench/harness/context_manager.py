@@ -367,7 +367,8 @@ class TestbedContextManager:
                     self.exec(cmd.split(" "))
 
 
-                    reqs = find_requirement_files(repo_path)
+                    # reqs = find_requirement_files(repo_path)
+                    reqs = install.get("files", [])
                     # Install dependencies
                     path_to_reqs = get_requirements(setup_ref_instance, reqs, self.testbed)
                     cmd = f". {path_activate} {env_name} && echo 'activate successful' && pip install -r {path_to_reqs}"
@@ -660,8 +661,11 @@ class TaskEnvContextManager:
         if "install" not in specifications:
             return True
 
+        install_cmd = "python -m pip install -e ."
+        if specifications['python'] == '3.5':
+            install_cmd = "python setup.py install"
      #   cmd_install = f"{self.cmd_activate} && {specifications['install']} && conda install pytest"
-        cmd_install = f"{self.cmd_activate} && pip install -e ."
+        cmd_install = f"{self.cmd_activate} && {install_cmd}"
         # cmd_install_env = f"{self.cmd_activate} && {specifications['install']}"
         # poetry_install = f"{self.cmd_activate} && poetry install"
         self.log.write(f"Running installation command: {cmd_install}")

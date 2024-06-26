@@ -1,4 +1,4 @@
-import argparse, glob, json, logging, os, re, requests, subprocess, sys
+import argparse, glob, json, logging, os, re, requests, subprocess, sys, shutil
 from functools import partial
 
 from multiprocessing import Pool, Manager
@@ -348,10 +348,13 @@ def main(args):
             logger.info(
                 f"Creating clone of {data_tasks[0]['repo']} at {testbed_repo_name}"
             )
-            cmd_clone = (
-                f"git clone git@github.com:{repo_prefix.replace('__', '/')} {testbed_repo_name}"
-            )
-            subprocess.run(cmd_clone, shell=True, check=True, stdout=subprocess.DEVNULL)
+            if os.path.exists(f"{repo_prefix}__0"):
+                shutil.copytree(f"{repo_prefix}__0", testbed_repo_name)
+            else:
+                cmd_clone = (
+                    f"git clone git@github.com:{repo_prefix.replace('__', '/')} {testbed_repo_name}"
+                )
+                subprocess.run(cmd_clone, shell=True, check=True, stdout=subprocess.DEVNULL)
         else:
             logger.info(
                 f"Repo for {data_tasks[0]['repo']} exists: {testbed_repo_name}; skipping..."

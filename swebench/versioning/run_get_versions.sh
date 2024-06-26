@@ -1,12 +1,12 @@
 export PYTHONPATH="/mnt/llm/home/ibragim-bad/code/SWE-bench"
 
-# python /mnt/llm/home/ibragim-bad/code/SWE-bench/swebench/versioning/get_versions.py \
-#     --instances_path "/mnt/llm/home/ibragim-bad/code/SWE-bench/data/microk8s-task-instances.jsonl" \
-#     --retrieval_method build \
-#     --conda_env "swe-bench" \
-#     --num_workers 1 \
-#     --path_conda "/mnt/llm/home/ibragim-bad/code/conda" \
-#     --testbed "/mnt/llm/home/ibragim-bad/code/SWE-bench/data/testbed"
+python /mnt/llm/home/ibragim-bad/code/SWE-bench/swebench/versioning/get_versions.py \
+    --instances_path "/mnt/llm/home/ibragim-bad/code/SWE-bench/data/microk8s-task-instances.jsonl" \
+    --retrieval_method build \
+    --conda_env "swe-bench" \
+    --num_workers 1 \
+    --path_conda "/mnt/llm/home/ibragim-bad/code/conda" \
+    --testbed "/mnt/llm/home/ibragim-bad/code/SWE-bench/data/testbed"
 
 # Example call for getting versions from github web interface
 # python get_versions.py \
@@ -17,20 +17,19 @@ export PYTHONPATH="/mnt/llm/home/ibragim-bad/code/SWE-bench"
 
 #!/bin/bash
 
-export PYTHONPATH="/mnt/llm/home/ibragim-bad/code/SWE-bench"
+# export PYTHONPATH="/mnt/llm/home/ibragim-bad/code/SWE-bench"
 
-for file in /mnt/s3/llm/home/ibragim-bad/swebench/dump_tasks/*.jsonl; do
-    echo "$file"
-    if [ "$file" != "/mnt/s3/llm/home/ibragim-bad/swebench/dump_tasks/ccxt-task-instances.jsonl" ]; then
-        python /mnt/llm/home/ibragim-bad/code/SWE-bench/swebench/versioning/get_versions.py \
-            --instances_path "$file" \
-            --retrieval_method build \
-            --conda_env "swe-bench" \
-            --num_workers 1 \
-            --path_conda "/mnt/llm/home/ibragim-bad/code/conda" \
-            --testbed "/mnt/llm/home/ibragim-bad/code/SWE-bench/data/testbed" \
-            --output_dir "/mnt/llm/home/ibragim-bad/code/SWE-bench/data/versions/"
-    else
-        echo "Skipping ccxt-task-instances.jsonl"
-    fi
-done
+# for file in /mnt/s3/llm/home/ibragim-bad/swebench/dump_tasks/*.jsonl; do
+#     echo "$file"
+#     # if [ "$file" != "/mnt/s3/llm/home/ibragim-bad/swebench/dump_tasks/ccxt-task-instances.jsonl" ]; then
+#     python /mnt/llm/home/ibragim-bad/code/SWE-bench/swebench/versioning/get_versions.py \
+#         --instances_path "$file" \
+#         --retrieval_method build \
+#         --conda_env "swe-bench" \
+#         --path_conda "/mnt/llm/home/ibragim-bad/code/conda" \
+#         --testbed "/mnt/llm/home/ibragim-bad/code/SWE-bench/data/testbed" \
+#         --output_dir "/mnt/llm/home/ibragim-bad/code/SWE-bench/data/versions/"
+#     # else
+#     #     echo "Skipping ccxt-task-instances.jsonl"
+#     # fi
+# done

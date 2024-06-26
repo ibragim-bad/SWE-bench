@@ -347,9 +347,9 @@ def get_repo_version_candidate(repo_path):
             elif os.path.basename(file) in ['version.py', '__init__.py', '__version__.py', '__pkginfo__.py']:
                 with open(os.path.join(root, file), 'r') as f:
                     content = f.read()
-                    version_match = re.search(r'__version__\s*=\s*["\']?([\d.]+)["\']?', content)
+                    version_match = re.search(r'(__version__|VERSION)\s*=\s*["\']?([\d\w.]+)["\']?', content)
                     if version_match:
-                        cand = version_match.group(1)
+                        cand = version_match.group(2)
             
             elif file == 'pyproject.toml':
                 with open(os.path.join(root, file), 'r') as f:
