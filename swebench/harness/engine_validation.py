@@ -130,6 +130,7 @@ def main(args):
     if args.instance_id is not None:
         instances = args.instance_id.split(',')
         task_instances = [t for t in task_instances if t['instance_id'] in instances]
+    task_instances = [t for t in task_instances if t.get('version', -1) != -1]
     task_instances_groups = split_instances(task_instances, args.num_workers)
 
     data_groups = [

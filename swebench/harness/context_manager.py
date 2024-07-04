@@ -231,6 +231,41 @@ class TestbedContextManager:
         # Remove None versions, versions not in MAP_VERSION_TO_INSTALL
         self._custom_restraints()
 
+    def reset_task_env(self, instance: dict):
+        """
+        Reset task environment + testbed and checkout base commit of given task instance
+
+        Args:
+            instance (dict): Task instance
+        Returns:
+            bool: True if reset successful, False otherwise
+        """
+        try:
+            # Remove all paths in .gitignore
+            if os.path.exists(".gitignore"):
+                self.exec(
+                    "git ls-files --ignored --exclude-standard -o -z | xargs -0 -r rm -rf".split(),
+                    raise_error=False,
+                )
+
+            # Reset git repo + checkout base commit
+            self.exec("git restore .".split(" "))
+            self.exec("git reset HEAD .".split(" "))
+            self.exec("git clean -fdx".split(" "))
+            self.exec(
+                f"git -c advice.detachedHead=false checkout {instance['base_commit']}".split(
+                    " "
+                )
+            )
+            self.log.write(f"Reset task environment to {instance['base_commit']}")
+            return True
+        except Exception as e:
+            err_msg = f"{RESET_FAILED}; Failed to reset task environment to {instance['base_commit']}: {e}"
+            self.log.write(err_msg, level=ERROR)
+            with open(self.log_file, "a") as f:
+                f.write(err_msg)
+            return False
+
     def __enter__(self):
         """
         Set up testbed (conda environments, git repositories)
@@ -353,11 +388,15 @@ class TestbedContextManager:
                     self.log.write(f"Environment {env_name} already exists; skipping")
                     continue
 
+                # change directory to self.testbed
                 # Get setup reference instance
                 setup_ref_instance = version_to_setup_ref[version]
-
+                reqs = find_requirement_files(repo_path)
+                os.chdir(repo_path)
+                self.reset_task_env(setup_ref_instance)
+                pkgs = get_requirements(setup_ref_instance, reqs, self.testbed, self.testbed)
                 # Create conda environment according to install instructinos
-                pkgs = install["packages"] if "packages" in install else ""
+                # pkgs = install["packages"] if "packages" in install else ""
                 if pkgs == "requirements.txt":
                     # Create environment
                     cmd = (
@@ -366,12 +405,10 @@ class TestbedContextManager:
                     self.log.write(f"Creating environment {env_name}")
                     self.exec(cmd.split(" "))
 
-
-                    # reqs = find_requirement_files(repo_path)
                     reqs = install.get("files", [])
                     # Install dependencies
-                    path_to_reqs = get_requirements(setup_ref_instance, reqs, self.testbed)
-                    cmd = f". {path_activate} {env_name} && echo 'activate successful' && pip install -r {path_to_reqs}"
+                    # path_to_reqs = get_requirements(setup_ref_instance, reqs, self.testbed)
+                    cmd = f". {path_activate} {env_name} && echo 'activate successful' && pip install -r {pkgs}"
                     self.log.write(f"Installing dependencies for {env_name}; Command: {cmd}")
                     self.exec(cmd, shell=True, executable='/bin/bash')
                     os.remove(path_to_reqs)
@@ -379,7 +416,7 @@ class TestbedContextManager:
                     # Create environment
                     
                     cmd = (
-                        f"{exec_cmd} create -n {env_name} python={install['python']} pytest poetry -y"
+                        f"{exec_cmd} create -n {env_name} python={install['python']} pytest -y"
                     )
                     self.log.write(f"Creating environment {env_name}")
                     self.exec(cmd.split(" "))
@@ -421,7 +458,7 @@ class TestbedContextManager:
                     os.remove(path_to_reqs)
                 else:
                     # Create environment + install dependencies
-                    cmd = f"{exec_cmd} create -n {env_name} python={install['python']} -y"
+                    cmd = f"{exec_cmd} create -n {env_name} python={install['python']} pytest pytest-benchmark -y"
                     self.log.write(f"Creating environment {env_name}")
                     self.exec(cmd, shell=True, executable='/bin/bash')
                     install_cmd = f". {path_activate} {env_name}"
@@ -494,6 +531,8 @@ class TestbedContextManager:
             self.temp_dir_work.cleanup()
         if self.temp_dir_conda is not None:
             self.temp_dir_conda.cleanup()
+
+
 
 
 logger_taskenv = logging.getLogger("taskenv")
