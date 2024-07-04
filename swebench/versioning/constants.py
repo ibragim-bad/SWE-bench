@@ -47,7 +47,7 @@ MAP_REPO_TO_VERSION_PATTERNS.update(
             r'__version__ = version = [\'"](.*)[\'"]',
             r"VERSION = \((.*)\)",
         ]
-        for k in ["pytest-dev/pytest", "matplotlib/matplotlib"]
+        for k in ["pytest-dev/pytest", "matplotlib/matplotlib", "default"]
     }
 )
 MAP_REPO_TO_VERSION_PATTERNS.update({k: [r"(.*)"] for k in ["Qiskit/qiskit"]})

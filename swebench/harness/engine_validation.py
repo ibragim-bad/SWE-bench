@@ -52,7 +52,8 @@ def verify_task_instances(data: dict):
             data_dict.log_dir,
             data_dict.conda_path,
             verbose=data_dict.verbose,
-            timeout=data_dict.timeout,
+            # timeout=data_dict.timeout,
+            timeout=600,
             log_suffix=data_dict.log_suffix,
         ) as tcm:
             if (
@@ -95,7 +96,8 @@ def setup_testbed(data: dict):
         path_conda=data_dict.path_conda,
         testbed=data_dict.testbed,
         temp_dir=data_dict.temp_dir,
-        timeout=data_dict.timeout,
+        # timeout=data_dict.timeout,
+        timeout=600,
         verbose=data_dict.verbose,
     ) as tcm:
         distributed_task_list = tcm.get_distributed_tasks()
@@ -107,6 +109,9 @@ def setup_testbed(data: dict):
         if len(distributed_task_list) == 1:
             data_dict.func(distributed_task_list[0])
             return
+        
+        if len(distributed_task_list) == 0:
+            return 
 
         pool = Pool(processes=len(distributed_task_list))
         pool.map(data_dict.func, distributed_task_list)
@@ -122,6 +127,10 @@ def main(args):
         args.num_workers = cpu_count()
 
     task_instances = get_instances(args.instances_path)
+    if args.instance_id is not None:
+        instances = args.instance_id.split(',')
+        task_instances = [t for t in task_instances if t['instance_id'] in instances]
+    task_instances = [t for t in task_instances if t.get('version', -1) != -1]
     task_instances_groups = split_instances(task_instances, args.num_workers)
 
     data_groups = [
@@ -158,6 +167,7 @@ if __name__ == "__main__":
     parser.add_argument("--timeout", type=int, default=None, help="(Optional) Timeout (seconds) for testing script execution")
     parser.add_argument("--verbose", action="store_true", help="(Optional) Verbose mode")
     parser.add_argument("--num_workers", type=int, default=None, help="(Optional) Number of workers")
+    parser.add_argument("--instance_id", type=str, default=None, help="Instance id")
     args = parser.parse_args()
     validate_args(args)
     main(args)

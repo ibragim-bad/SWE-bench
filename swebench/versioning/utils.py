@@ -1,5 +1,5 @@
 import json
-
+import os
 
 def get_instances(instance_path: str) -> list:
     """
@@ -43,3 +43,22 @@ def split_instances(input_list: list, n: int) -> list:
         start += length
 
     return result
+
+def find_version_files(directory):
+    version_files = []
+    
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.endswith('.py'):
+                file_path = os.path.join(root, file)
+                if os.path.basename(file) in ['version.py', '__init__.py', '__pkginfo__.py']:
+                    version_files.append(file_path)
+                else:
+                    with open(file_path, 'r') as f:
+                        if any('__version__' in line for line in f):
+                            version_files.append(file_path)
+            elif file.endswith('.version'):
+                version_files.append(os.path.join(root, file))
+    
+    return version_files
+

@@ -1,4 +1,5 @@
-import argparse, glob, json, logging, os, re, requests, subprocess, sys
+import argparse, glob, json, logging, os, re, requests, subprocess, sys, shutil
+from functools import partial
 
 from multiprocessing import Pool, Manager
 
@@ -7,7 +8,9 @@ from swebench.versioning.constants import (
     MAP_REPO_TO_VERSION_PATHS,
     MAP_REPO_TO_VERSION_PATTERNS,
 )
-from swebench.versioning.utils import get_instances, split_instances
+from swebench.versioning.utils import get_instances, split_instances, find_version_files
+from swebench.harness.utils import find_requirement_files, get_requirements, classify_package_files
+from swebench.harness.extract_utils import get_required_packages, get_repo_version, get_python_version_from_directory, get_required_packages_file, INSTALL_COMMANDS
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -19,6 +22,7 @@ INSTALL_CMD = {
     "pytest-dev/pytest": "pip install -e .",
     "matplotlib/matplotlib": "python -m pip install -e .",
     "pydata/xarray": "pip install -e .",
+    "default":  "conda env update --file environment.yml"
 }
 
 
@@ -36,7 +40,10 @@ def _find_version_in_text(text: str, instance: dict) -> str:
     pattern = r'""".*?"""'
     text = re.sub(pattern, '', text, flags=re.DOTALL)
     # Search through all patterns
-    for pattern in MAP_REPO_TO_VERSION_PATTERNS[instance["repo"]]:
+    repo_name = "default"
+    if instance["repo"] in MAP_REPO_TO_VERSION_PATTERNS:
+        repo_name = instance["repo"]
+    for pattern in MAP_REPO_TO_VERSION_PATTERNS[repo_name]:
         matches = re.search(pattern, text)
         if matches is not None:
             print(instance['repo'])
@@ -67,7 +74,10 @@ def get_version(instance, is_build=False, path_repo=None):
         str: Version text, if found
     """
     keep_major_minor = lambda x, sep: ".".join(x.strip().split(sep)[:2])
-    paths_to_version = MAP_REPO_TO_VERSION_PATHS[instance["repo"]]
+    if instance["repo"] not in MAP_REPO_TO_VERSION_PATHS and is_build:
+        paths_to_version = find_version_files(path_repo)
+    else:
+        paths_to_version = MAP_REPO_TO_VERSION_PATHS[instance["repo"]]
     version = None
     for path_to_version in paths_to_version:
         init_text = None
@@ -121,7 +131,7 @@ def map_version_to_task_instances(task_instances: list) -> dict:
     return return_map
 
 
-def get_versions_from_build(data: dict):
+def get_versions_from_build(data: dict, install_env=False):
     """
     Logic for looking up versions by building the repo at the instance's base
     commit and looking for the version according to repo-specific paths.
@@ -140,7 +150,6 @@ def get_versions_from_build(data: dict):
     # Activate conda environment and set installation command
     cmd_activate = f"source {os.path.join(path_conda, 'bin/activate')}"
     cmd_source = f"source {os.path.join(path_conda, 'etc/profile.d/conda.sh')}"
-    cmd_install = INSTALL_CMD[data_tasks[0]["repo"]]
 
     # Change directory to repo testbed
     cwd = os.getcwd()
@@ -166,19 +175,43 @@ def get_versions_from_build(data: dict):
             logger.error(f"[{instance['instance_id']}] Checkout failed")
             continue
 
+        # packages_list = get_required_packages(path_repo)
+        package_files = get_required_packages_file(path_repo)
+        ##pyrpoject at first then others
+        # pack_type = [p.split('/')[-1] for p in package_files]
+        for pack_type in ['requirements.txt', 'environment.yml', 'pyproject.toml', 'setup.py', 'tox.ini']:
+            if pack_type in package_files:
+                break
         # Run installation command in repo
-        out_install = subprocess.run(
-            f"{cmd_source}; {cmd_activate} {conda_env}; {cmd_install}",
-            shell=True,
-            stdout=subprocess.DEVNULL,
-        )
-        if out_install.returncode != 0:
-            logger.error(f"[{instance['instance_id']}] Installation failed")
-            continue
+        if install_env:
+            cmd_install = INSTALL_CMD.get(data_tasks[0]["repo"], "")
+            # if cmd_install is None:
+            #     cmd_install = f"pip install {packages}"
+            
+            out_install = subprocess.run(
+                f"bash -c '{cmd_source}'; bash -c '{cmd_activate} {conda_env}'; {cmd_install}",
+                shell=True,
+                stdout=subprocess.DEVNULL,
+            )
+            if out_install.returncode != 0:
+                logger.error(f"[{instance['instance_id']}] Installation failed")
+                continue
 
         # Look up version according to repo-specific paths
-        version = get_version(instance, is_build=True, path_repo=path_repo)
-        instance["version"] = version
+        version = get_repo_version(path_repo)
+
+        python_version = get_python_version_from_directory(path_repo)
+        if python_version is None:
+            python_version = "3.9"
+        install_params  = {
+            "python": python_version,
+            "packages": pack_type,
+            "install": INSTALL_COMMANDS[pack_type],
+        }
+        if pack_type in package_files:
+            install_params['files'] = package_files[pack_type]
+        instance['install_params'] = install_params
+        instance['version'] = version
         logger.info(f'For instance {instance["instance_id"]}, version is {version}')
 
     # Save results
@@ -235,7 +268,7 @@ def merge_results(instances_path: str, repo_prefix: str, output_dir: str = None)
     if output_dir is not None:
         instances_path_new = os.path.join(output_dir, instances_path_new)
     with open(f"{instances_path_new}", "w") as f:
-        json.dump(merged, fp=f)
+        json.dump(merged, fp=f, indent=2)
     logger.info(f"Saved merged results to {instances_path_new} ({len(merged)} instances)")
     return len(merged)
 
@@ -246,6 +279,11 @@ def main(args):
     """
     # Get task instances + split into groups for each thread
     data_tasks = get_instances(args.instances_path)
+    if len(data_tasks) == 0:
+            logger.info(
+        f"Skip empty file: {args.instances_path}"
+    )
+            return 
     data_task_lists = split_instances(data_tasks, args.num_workers)
     repo_prefix = data_tasks[0]["repo"].replace("/", "__")
 
@@ -304,31 +342,36 @@ def main(args):
     os.chdir(args.testbed)
     for x in range(0, args.num_workers):
         # Clone git repo per thread
+        #TODO: Add copy instead of cloning with already have repo 
         testbed_repo_name = f"{repo_prefix}__{x}"
         if not os.path.exists(testbed_repo_name):
             logger.info(
                 f"Creating clone of {data_tasks[0]['repo']} at {testbed_repo_name}"
             )
-            cmd_clone = (
-                f"git clone git@github.com:swe-bench/{repo_prefix} {testbed_repo_name}"
-            )
-            subprocess.run(cmd_clone, shell=True, check=True, stdout=subprocess.DEVNULL)
+            if os.path.exists(f"{repo_prefix}__0"):
+                shutil.copytree(f"{repo_prefix}__0", testbed_repo_name)
+            else:
+                cmd_clone = (
+                    f"git clone git@github.com:{repo_prefix.replace('__', '/')} {testbed_repo_name}"
+                )
+                subprocess.run(cmd_clone, shell=True, check=True, stdout=subprocess.DEVNULL)
         else:
             logger.info(
                 f"Repo for {data_tasks[0]['repo']} exists: {testbed_repo_name}; skipping..."
             )
         # Clone conda environment per thread
         conda_env_name = f"{args.conda_env}_clone_{x}"
-        if not os.path.exists(os.path.join(args.path_conda, "envs", conda_env_name)):
-            logger.info(f"Creating clone of {args.conda_env} at {conda_env_name}")
-            cmd_clone_env = f"{conda_exec} create --name {conda_env_name} --clone {args.conda_env} -y"
-            subprocess.run(
-                cmd_clone_env, shell=True, check=True, stdout=subprocess.DEVNULL
-            )
-        else:
-            logger.info(
-                f"Conda clone for thread {x} exists: {conda_env_name}; skipping..."
-            )
+        if args.install_env:
+            if not os.path.exists(os.path.join(args.path_conda, "envs", conda_env_name)):
+                logger.info(f"Creating clone of {args.conda_env} at {conda_env_name}")
+                cmd_clone_env = f"{conda_exec} create --name {conda_env_name} --clone {args.conda_env} -y"
+                subprocess.run(
+                    cmd_clone_env, shell=True, check=True, stdout=subprocess.DEVNULL
+                )
+            else:
+                logger.info(
+                    f"Conda clone for thread {x} exists: {conda_env_name}; skipping..."
+                )
     os.chdir(cwd)
 
     # Create pool tasks
@@ -346,8 +389,10 @@ def main(args):
         )
 
     # Parallelized call
+    partial_get_versions = partial(get_versions_from_build, install_env=args.install_env)
+
     pool = Pool(processes=args.num_workers)
-    pool.map(get_versions_from_build, pool_tasks)
+    pool.map(partial_get_versions, pool_tasks)
     pool.close()
     pool.join()
 
@@ -389,5 +434,6 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=1, help="Number of threads to use")
     parser.add_argument("--output_dir", type=str, default=None, help="Path to save results")
     parser.add_argument("--testbed", type=str, default=None, help="Path to testbed repo")
+    parser.add_argument("--install_env", type=bool, default=False, help="Path to testbed repo")
     args = parser.parse_args()
     main(args)

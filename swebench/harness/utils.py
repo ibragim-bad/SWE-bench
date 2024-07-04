@@ -135,39 +135,39 @@ def get_instances(instance_path: str) -> list:
     return task_instances
 
 
-def get_requirements(instance: dict, save_path: str = None):
+def get_requirements(instance: dict, req_files_list: list, base_path: str, save_path: str = None):
     """
     Get requirements.txt for given task instance
 
     Args:
         instance (dict): task instance
+        req_files_list (list): List of possible requirements file paths
+        base_path (str): Base path where the repository is located
         save_path (str): If provided, save requirements.txt to this path
     Returns:
         requirements.txt (str): If save_path given, returns path to saved requirements.txt.
             Otherwise, returns requirements.txt as string
     """
-    # Attempt to find requirements.txt at each path based on task instance's repo
     path_worked = False
     commit = 'environment_setup_commit' if 'environment_setup_commit' in instance else 'base_commit'
+    req_files_list = MAP_REPO_TO_REQS_PATHS.get(instance["repo"], []) + req_files_list
 
-    for req_path in MAP_REPO_TO_REQS_PATHS[instance["repo"]]:
-        reqs_url = os.path.join(
-            SWE_BENCH_URL_RAW, instance["repo"], instance[commit], req_path
-        )
-        reqs = requests.get(reqs_url)
-        if reqs.status_code == 200:
+    for req_path in req_files_list:
+        full_path = os.path.join(base_path, instance["repo"], req_path)
+        if os.path.exists(full_path):
             path_worked = True
             break
+
     if not path_worked:
-        print(
-            f"Could not find requirements.txt at paths {MAP_REPO_TO_REQS_PATHS[instance['repo']]}"
-        )
+        print(f"Could not find requirements.txt at paths {req_files_list}")
         return None
 
-    lines = reqs.text
+    with open(full_path, 'r') as f:
+        lines = f.read()
+
     original_req = []
     additional_reqs = []
-    req_dir = "/".join(req_path.split("/")[:-1])
+    req_dir = os.path.dirname(full_path)
     exclude_line = lambda line: any(
         [line.strip().startswith(x) for x in ["-e .", "#", ".[test"]]
     )
@@ -175,25 +175,19 @@ def get_requirements(instance: dict, save_path: str = None):
     for line in lines.split("\n"):
         if line.strip().startswith("-r"):
             # Handle recursive requirements
-            file_name = line[len("-r") :].strip()
-            reqs_url = os.path.join(
-                SWE_BENCH_URL_RAW,
-                instance["repo"],
-                instance[commit],
-                req_dir,
-                file_name,
-            )
-            reqs = requests.get(reqs_url)
-            if reqs.status_code == 200:
-                for line_extra in reqs.text.split("\n"):
-                    if not exclude_line(line_extra):
-                        additional_reqs.append(line_extra)
+            file_name = line[len("-r"):].strip()
+            recursive_req_path = os.path.join(req_dir, file_name)
+            if os.path.exists(recursive_req_path):
+                with open(recursive_req_path, 'r') as f:
+                    for line_extra in f:
+                        if not exclude_line(line_extra):
+                            additional_reqs.append(line_extra.strip())
         else:
             if not exclude_line(line):
                 original_req.append(line)
 
     # Combine all requirements into single text body
-    additional_reqs.append("\n".join(original_req))
+    additional_reqs.extend(original_req)
     all_reqs = "\n".join(additional_reqs)
 
     if save_path is None:
@@ -203,7 +197,6 @@ def get_requirements(instance: dict, save_path: str = None):
     with open(path_to_reqs, "w") as f:
         f.write(all_reqs)
     return path_to_reqs
-
 
 def get_test_directives(instance: dict) -> list:
     """
@@ -264,8 +257,8 @@ def clone_repo(repo_name: str, path: str, token: str = None) -> bool:
         if token is None:
             token = os.environ.get("GITHUB_TOKEN", "git")
         repo_url = (
-            f"https://{token}@github.com/swe-bench/"
-            + repo_name.replace("/", "__")
+            f"https://{token}@github.com/"
+            + repo_name
             + ".git"
         )
         Repo.clone_from(repo_url, path)
@@ -459,3 +452,56 @@ def has_attribute_or_import_error(log_before):
         if any([(x in lines_1 or x in lines_2) for x in ['error', 'fail']]):
             return True
     return False
+
+def find_requirement_files(directory):
+    package_files = []
+    
+    for root, _, files in os.walk(directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if "requirements" in file_path:
+                package_files.append(os.path.relpath(file_path, start=directory))
+    
+    return package_files
+
+def classify_package_files(files):
+    for file in files:
+        if file == 'environment.yml':
+            return "environment.yml"
+    return "requirement.txt"
+
+def get_all_markdown_files(directory):
+    markdown_files = []
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.endswith('.md'):
+                markdown_files.append(os.path.join(root, file))
+    return markdown_files
+
+def extract_versions_from_file(file_path):
+    with open(file_path, 'r') as file:
+        content = file.read()
+    
+    # Regular expression to find versions in the format like 3.9, 3.6, etc.
+    pattern = r'\b(\d+\.\d+(\.\d+)?)\b'
+    matches = re.findall(pattern, content)
+    return [match[0] for match in matches]
+
+def is_possible_python_version(version):
+    major, minor, *patch = version.split('.')
+    if int(major) == 3 and int(minor) >= 6 and int(minor) <= 12:  # Basic check for Python 3.x.x versions
+        return True
+    return False
+
+# def get_python_version_from_directory(directory):
+#     markdown_files = get_all_markdown_files(directory)
+#     possible_version = None
+    
+#     for file_path in markdown_files:
+#         versions = extract_versions_from_file(file_path)
+#         for version in versions:
+#             if is_possible_python_version(version):
+#                 possible_version = version
+#                 break 
+    
+#     return possible_version
